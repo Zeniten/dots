@@ -32,11 +32,8 @@ This function should only modify configuration layer settings."
 
    ;; List of configuration layers to load.
    dotspacemacs-configuration-layers
-   '(yaml
-     csv
-     markdown
-     typescript
-     html
+   '(nginx
+     javascript
      ;; ----------------------------------------------------------------
      ;; Example of useful layers you may want to use right away.
      ;; Uncomment some layer names and press `SPC f e R' (Vim style) or
@@ -47,28 +44,43 @@ This function should only modify configuration layer settings."
                       auto-completion-enable-snippets-in-popup t
                       auto-completion-enable-sort-by-usage t)
      ;; better-defaults
-     clojure
+     (clojure :variables
+              ;; clojure-enable-linters 'clj-kondo        ;; clj-kondo included in lsp
+              cider-repl-display-help-banner nil          ;; disable help banner
+              cider-print-fn 'puget                       ;; pretty printing with sorted keys / set values
+              cider-eldoc-display-for-symbol-at-point nil ;; prefer clojure-lsp to show signature
+              )
      deft
+     docker
      emacs-lisp
      git
      helm
-     ;; lsp
-     ;; markdown
+     html
+     javascript
+     lsp
+     markdown
      multiple-cursors
      (org :variables
-          org-enable-org-journal-support t)
-     org-roam
-     ;; (shell :variables
-     ;;        shell-default-height 30
-     ;;        shell-default-position 'bottom)
-     ;; spell-checking
+          org-enable-org-journal-support t
+          org-enable-github-support t
+          org-hide-leading-stars t
+          org-enable-roam-support t
+          org-enable-roam-ui t)
+     prettier
+     (python :variables python-backend 'anaconda)
+     (conda :variables conda-anaconda-home "/home/zeniten/miniconda3")
+     react
      restclient
      shell
      (sql :variables sql-capitalize-keywords t)
      syntax-checking
      treemacs
+     (typescript :variables
+                 typescript-linter 'eslint
+                 typescript-fmt-tool 'prettier
+                 typescript-backend 'lsp)
      version-control
-     vue
+     yaml
      )
 
    ;; List of additional packages that will be installed without being
@@ -467,7 +479,7 @@ This function is called immediately after `dotspacemacs/init', before layer
 configuration.
 It is mostly for variables that should be set before packages are loaded.
 If you are unsure, try setting them in `dotspacemacs/user-config' first."
-  )
+  (setq org-roam-v2-ack t))
 
 (defun dotspacemacs/user-load ()
   "Library to load while dumping.
@@ -482,13 +494,62 @@ This function is called at the very end of Spacemacs startup, after layer
 configuration.
 Put your configuration code here, except for variables that should be set
 before packages are loaded."
+  ;; Theme
+  ;; (setq-default dotspacemacs-themes '(zenburn))
+
+
+  ;;; org-roam
+  ;; fix for buffers not displaying correctly
+  (global-page-break-lines-mode 0)
+
+  ;; Font Ligatures
+  (defun my-correct-symbol-bounds (pretty-alist)
+      "Prepend a TAB character to each symbol in this alist,
+  this way compose-region called by prettify-symbols-mode
+  will use the correct width of the symbols
+  instead of the width measured by char-width."
+      (mapcar (lambda (el)
+                (setcdr el (string ?\t (cdr el)))
+                el)
+              pretty-alist))
+
+  (defun my-ligature-list (ligatures codepoint-start)
+      "Create an alist of strings to replace with
+  codepoints starting from codepoint-start."
+      (let ((codepoints (-iterate '1+ codepoint-start (length ligatures))))
+        (-zip-pair ligatures codepoints)))
+
+  (setq my-fira-code-ligatures
+      (let* ((ligs '("www" "**" "***" "**/" "*>" "*/" "\\\\" "\\\\\\"
+                    "{-" "[]" "::" ":::" ":=" "!!" "!=" "!==" "-}"
+                    "--" "---" "-->" "->" "->>" "-<" "-<<" "-~"
+                    "#{" "#[" "##" "###" "####" "#(" "#?" "#_" "#_("
+                    ".-" ".=" ".." "..<" "..." "?=" "??" ";;" "/*"
+                    "/**" "/=" "/==" "/>" "//" "///" "&&" "||" "||="
+                    "|=" "|>" "^=" "$>" "++" "+++" "+>" "=:=" "=="
+                    "===" "==>" "=>" "=>>" "<=" "=<<" "=/=" ">-" ">="
+                    ">=>" ">>" ">>-" ">>=" ">>>" "<*" "<*>" "<|" "<|>"
+                    "<$" "<$>" "<!--" "<-" "<--" "<->" "<+" "<+>" "<="
+                    "<==" "<=>" "<=<" "<>" "<<" "<<-" "<<=" "<<<" "<~"
+                    "<~~" "</" "</>" "~@" "~-" "~=" "~>" "~~" "~~>" "%%"
+                    "x" ":" "+" "+" "*")))
+        (my-correct-symbol-bounds (my-ligature-list ligs #Xe100))))
+
+  (defun my-set-fira-code-ligatures ()
+      "Add fira code ligatures for use with prettify-symbols-mode."
+      (setq prettify-symbols-alist
+            (append my-fira-code-ligatures prettify-symbols-alist))
+      (prettify-symbols-mode))
+
+  (add-hook 'prog-mode-hook 'my-set-fira-code-ligatures)
+
   ;; Deft
   (setq deft-directory "~/Dropbox/org")
   (setq deft-recursive t)
-  (setq deft-default-extension "org")
 
   ;; Org mode
   (with-eval-after-load 'org
+    (setq org-startup-indented t)
     (setq org-startup-with-inline-images t)
     (setq org-hide-emphasis-markers t)
 
@@ -550,14 +611,118 @@ and some custom text on a newly created journal file."
           (newline)
           (insert "* Refleksjon")
           (newline-and-indent)
-          (insert "- *Hva gjorde du dårlig?*")
+          (insert "*Hva gjorde du dårlig?*")
           (newline)
-          (newline-and-indent)
-          (insert "+ *Hva gjorde du bra?*")
+          (newline)
+          (insert "*Hva gjorde du bra?*")
           (newline-and-indent))))
 
     (setq org-journal-date-format 'org-journal-date-format-func)
+
+    ;;; org-roam
+    (defun get-filenames (str)
+      "Returns all files containing `str' as a substring."
+      (seq-remove (lambda (s) (not (string-match-p str s))) (directory-files (file-truename "~/Dropbox/org"))))
+
+    ;; (get-filenames "foo")
+
+    (defun file-number (str)
+      "Returns file number from `str'."
+      (and (string-match "[0-9]+\.org" str)
+           (let* ((n (match-string 0 str)))
+             (string-to-number n))))
+
+    ;; (file-number "foo_23")
+
+    (defun get-next-file-number (str)
+      "Returns the next number not used among files with name `str'"
+      (let* ((filenames (get-filenames str)))
+        (let (value)
+         (dolist (elt filenames value)
+           (let* ((n (file-number elt)))
+             (if n (setq value (cons n value)))))
+         (if value
+             (number-to-string (+ (reduce #'max value) 1))
+           "1")
+         )))
+
+    ;; (get-next-file-number "foo")
+
+    (defun get-file-infix (type)
+      (let* ((concept (downcase (read-string "Concept: ")))
+             (file-infix (concat concept "_" type)))
+        (concat file-infix "_" (get-next-file-number file-infix))))
+
+    ;; (get-file-infix "p")
+
+    (setq org-roam-directory (file-truename "~/Dropbox/org/"))
+    (setq org-roam-capture-templates
+          '(
+            ("d" "default" plain
+             "%?"
+             :target (file+head "%<%Y%m%d%H%M%S>-${slug}.org"
+                                "#+TITLE: ${title}\n#+AUTHOR: Lars Kristian Maron Telle\n")
+             :empty-lines-before 1
+             :unnarrowed t
+             )
+            ("c" "Concept" plain
+             "%?\n\n* Examples"
+             :target (file+head "%<%Y%m%d%H%M%S>-${slug}.org"
+                                "#+TITLE: ${title}\n#+AUTHOR: Lars Kristian Maron Telle\n")
+             :empty-lines-before 1
+             :unnarrowed t)
+            ("p" "Proposition" plain
+             "%?\n\n* Reason"
+             :target (file+head "%<%Y%m%d%H%M%S>-%(get-file-infix \"p\").org"
+                                "#+TITLE: ${title}\n#+AUTHOR: Lars Kristian Maron Telle\n")
+             :empty-lines-before 1
+             :unnarrowed t)
+            ("m" "Method" plain
+             "1. %?"
+             :target (file+head "%<%Y%m%d%H%M%S>-%(get-file-infix \"m\").org"
+                                "#+TITLE: ${title}\n#+AUTHOR: Lars Kristian Maron Telle\n")
+             :empty-lines-before 1
+             :unnarrowed t)
+            ("l" "Check List" plain
+             "- %?"
+             :target (file+head "%<%Y%m%d%H%M%S>-%(get-file-infix \"c\").org"
+                                "#+TITLE: ${title}\n#+AUTHOR: Lars Kristian Maron Telle\n")
+             :empty-lines-before 1
+             :unnarrowed t)
+            ("n" "Note" plain
+             "* %?"
+             :target (file+head "notes/${year}-${slug}.org"
+                                "#+TITLE: ${title}\n#+AUTHOR: ${author}\n")
+             :empty-lines-before 1
+             :unnarrowed t)
+            ("t" "Tool" plain
+             "* %?"
+             :target (file+head "%<%Y%m%d%H%M%S>-${slug}.org"
+                                "#+TITLE: ${title}\n#+AUTHOR: Lars Kristian Maron Telle\n")
+             :empty-lines-before 1
+             :unnarrowed t)))
     )
+
+  ;; for wrapping lines of text in org-mode
+  (add-hook 'org-mode-hook 'turn-on-auto-fill)
+
+  ;; JavaScript
+  (setq-default
+   ;;; js2-mode
+   js-indent-level 2
+   ;;; typescript-mode
+   typescript-indent-level 2
+   ;;; web-mode
+   css-indent-offset 2
+   web-mode-markup-indent-offset 2
+   web-mode-css-indent-offset 2
+   web-mode-code-indent-offset 2
+   web-mode-attr-indent-offset 2)
+
+  ;; Remove undo-tree files
+  ;; https://github.com/syl20bnr/spacemacs/issues/15426
+  (with-eval-after-load 'undo-tree
+    (setq undo-tree-auto-save-history nil))
   )
 
 ;; Do not write anything past this comment. This is where Emacs will
@@ -572,13 +737,29 @@ This function is called at the very end of Spacemacs initialization."
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
+ '(evil-want-Y-yank-to-eol nil)
+ '(org-agenda-files
+   '("~/Dropbox/org/journal/2023-02-19.org" "/home/zeniten/Dropbox/org/tasks/inbox.org" "/home/zeniten/Dropbox/org/tasks/todo.org"))
+ '(package-selected-packages
+   '(cargo counsel-gtags counsel swiper ivy dap-mode lsp-docker bui flycheck-rust ggtags helm-gtags racer ron-mode rust-mode toml-mode ws-butler winum which-key web-mode volatile-highlights vi-tilde-fringe uuidgen use-package toc-org tagedit sql-indent spaceline powerline smeargle slim-mode scss-mode sass-mode restart-emacs rainbow-delimiters pug-mode popwin persp-mode pcre2el paradox orgit org-projectile org-category-capture org-present org-pomodoro alert log4e gntp org-plus-contrib org-mime org-download org-bullets open-junk-file neotree move-text magit-gitflow magit-popup macrostep lorem-ipsum linum-relative link-hint indent-guide hungry-delete htmlize hl-todo highlight-parentheses highlight-numbers parent-mode highlight-indentation helm-themes helm-swoop helm-projectile projectile helm-mode-manager helm-make helm-gitignore request helm-flx helm-descbinds helm-css-scss helm-company helm-c-yasnippet helm-ag haml-mode google-translate golden-ratio gnuplot gitignore-mode gitconfig-mode gitattributes-mode git-timemachine git-messenger git-link git-gutter-fringe+ git-gutter-fringe fringe-helper git-gutter+ git-gutter fuzzy flycheck-pos-tip flycheck flx-ido flx fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist highlight evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-magit magit git-commit with-editor transient evil-lisp-state smartparens evil-indent-plus evil-iedit-state iedit evil-exchange evil-escape evil-ediff evil-args evil-anzu anzu evil goto-chg undo-tree emmet-mode elisp-slime-nav dumb-jump f s diminish diff-hl define-word company-web web-completion-data dash company-statistics company-quickhelp pos-tip company column-enforce-mode clojure-snippets clj-refactor hydra inflections edn multiple-cursors paredit peg lv clean-aindent-mode cider-eval-sexp-fu eval-sexp-fu cider sesman spinner queue pkg-info parseedn clojure-mode parseclj a epl bind-map bind-key auto-yasnippet yasnippet auto-highlight-symbol auto-compile packed aggressive-indent adaptive-wrap ace-window ace-link ace-jump-helm-line helm avy helm-core async ac-ispell auto-complete popup)))
+(custom-set-faces
+ ;; custom-set-faces was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ '(highlight-parentheses-highlight ((nil (:weight ultra-bold))) t))
+)
+(custom-set-variables
+ ;; custom-set-variables was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
  '(package-selected-packages
    (quote
-    (yaml-mode vmd-mode mmm-mode markdown-toc markdown-mode gh-md emoji-cheat-sheet-plus company-emoji tide typescript-mode import-js grizzl ansi package-build shut-up epl git commander f dash s web-mode web-beautify tagedit slim-mode scss-mode sass-mode pug-mode prettier-js impatient-mode simple-httpd helm-css-scss haml-mode emmet-mode counsel-css counsel swiper ivy company-web web-completion-data add-node-modules-path yasnippet-snippets ws-butler writeroom-mode winum which-key volatile-highlights vi-tilde-fringe uuidgen use-package treemacs-projectile treemacs-magit treemacs-evil toc-org symon symbol-overlay string-inflection sqlup-mode sql-indent spaceline-all-the-icons smeargle restart-emacs rainbow-delimiters popwin persp-mode pcre2el password-generator paradox overseer orgit org-projectile org-present org-pomodoro org-mime org-journal org-download org-cliplink org-bullets org-brain open-junk-file nameless move-text magit-svn magit-gitflow macrostep lorem-ipsum link-hint indent-guide hybrid-mode hungry-delete htmlize hl-todo highlight-parentheses highlight-numbers highlight-indentation helm-xref helm-themes helm-swoop helm-purpose helm-projectile helm-org-rifle helm-org helm-mode-manager helm-make helm-ls-git helm-gitignore helm-git-grep helm-flx helm-descbinds helm-company helm-c-yasnippet helm-ag google-translate golden-ratio gnuplot gitignore-templates gitconfig-mode gitattributes-mode git-timemachine git-messenger git-link git-gutter-fringe git-gutter-fringe+ fuzzy font-lock+ flycheck-pos-tip flycheck-package flx-ido fill-column-indicator fancy-battery eyebrowse expand-region evil-visualstar evil-visual-mark-mode evil-unimpaired evil-tutor evil-textobj-line evil-surround evil-org evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-magit evil-lisp-state evil-lion evil-indent-plus evil-iedit-state evil-goggles evil-exchange evil-escape evil-ediff evil-cleverparens evil-args evil-anzu elisp-slime-nav editorconfig dumb-jump dotenv-mode doom-modeline diminish diff-hl devdocs define-word company-statistics company-quickhelp column-enforce-mode clojure-snippets clean-aindent-mode cider-eval-sexp-fu cider centered-cursor-mode browse-at-remote auto-yasnippet auto-highlight-symbol auto-compile aggressive-indent ace-link ace-jump-helm-line ac-ispell))))
+    (ws-butler winum which-key web-mode volatile-highlights vi-tilde-fringe uuidgen use-package toc-org tagedit sql-indent spaceline powerline smeargle slim-mode scss-mode sass-mode restart-emacs rainbow-delimiters pug-mode popwin persp-mode pcre2el paradox orgit org-projectile org-category-capture org-present org-pomodoro alert log4e gntp org-plus-contrib org-mime org-download org-bullets open-junk-file neotree move-text magit-gitflow magit-popup macrostep lorem-ipsum linum-relative link-hint indent-guide hungry-delete htmlize hl-todo highlight-parentheses highlight-numbers parent-mode highlight-indentation helm-themes helm-swoop helm-projectile projectile helm-mode-manager helm-make helm-gitignore request helm-flx helm-descbinds helm-css-scss helm-company helm-c-yasnippet helm-ag haml-mode google-translate golden-ratio gnuplot gitignore-mode gitconfig-mode gitattributes-mode git-timemachine git-messenger git-link git-gutter-fringe+ git-gutter-fringe fringe-helper git-gutter+ git-gutter fuzzy flycheck-pos-tip flycheck flx-ido flx fill-column-indicator fancy-battery eyebrowse expand-region exec-path-from-shell evil-visualstar evil-visual-mark-mode evil-unimpaired evil-tutor evil-surround evil-search-highlight-persist highlight evil-numbers evil-nerd-commenter evil-mc evil-matchit evil-magit magit git-commit with-editor transient evil-lisp-state smartparens evil-indent-plus evil-iedit-state iedit evil-exchange evil-escape evil-ediff evil-args evil-anzu anzu evil goto-chg undo-tree emmet-mode elisp-slime-nav dumb-jump f s diminish diff-hl define-word company-web web-completion-data dash company-statistics company-quickhelp pos-tip company column-enforce-mode clojure-snippets clj-refactor hydra inflections edn multiple-cursors paredit peg lv clean-aindent-mode cider-eval-sexp-fu eval-sexp-fu cider sesman spinner queue pkg-info parseedn clojure-mode parseclj a epl bind-map bind-key auto-yasnippet yasnippet auto-highlight-symbol auto-compile packed aggressive-indent adaptive-wrap ace-window ace-link ace-jump-helm-line helm avy helm-core async ac-ispell auto-complete popup))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  )
-)
